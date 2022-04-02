@@ -13,7 +13,7 @@ const readline = require('readline');
 const nodeExcel = require('excel-export');
 
 const app = new Koa();
-const filePath = path.resolve('../../maycur/maycur-form-web/src/components');
+const baseFilePath = path.resolve('../maycur-supply-chain/src');
 const excelData = [];
 
 app.use(router.routes());
@@ -31,6 +31,7 @@ router.get('/exportexcel', async (ctx) => {
         let alldata = new Array();
         for (let i = 0; i < v.length; i++) {
             let arr = new Array();
+            arr.push(v[i].path);
             arr.push(v[i].NameSpace);
             arr.push(v[i].Key1);
             arr.push(v[i].Key2);
@@ -40,6 +41,9 @@ router.get('/exportexcel', async (ctx) => {
         }
         //决定列名和类型
         conf.cols = [{
+            caption: 'path',
+            type: 'string'
+        }, {
             caption: 'NameSpace',
             type: 'string'
         }, {
@@ -66,9 +70,11 @@ router.get('/exportexcel', async (ctx) => {
         ctx.set("Content-Disposition", "attachment; filename=" + "i18n.xlsx");
         ctx.body = data;
     }
-
     await exportdata(excelData)
 });
+
+const matchExtArr = ['.jsx', '.js'];
+const extReg = new RegExp(`(${matchExtArr.map(item => `\\${item}`).join('|')})$`);
 
 // 读取文件
 function iterateFile(filePath) {
@@ -89,29 +95,40 @@ function iterateFile(filePath) {
                         const isFile = stats.isFile();//是文件
                         const isDir = stats.isDirectory();//是文件夹
                         const extname = path.extname(filedir);
-                        const reg = new RegExp(/(.jsx)$/)
-                        if (isFile && reg.test(extname)) {
+                        if (isFile && extReg.test(extname)) {
                             // 读取文件内容
                             const rl = readline.createInterface({
                                 input: fs.createReadStream(filedir)
                             });
+
+                            let flag = false; // 多行注视标记
+
                             rl.on('line', (line) => {
-                                // 排除注释
-                                const annotationReg = new RegExp(/(?:^|\n|\r)\s*\/\/.*(?:\r|\n|$)/g);
-                                if (!annotationReg.test(line)) {
-                                    const ch = (/[\u4e00-\u9fa5\uFF00-\uFFFF]+/g).exec(line);
-                                    if (ch) {
-                                        const pathArr = filedir.split('/');
-                                        const pathArrLength = pathArr.length
-                                        const fileName = pathArr[pathArrLength - 1].split('.')[0];
-                                        excelData.unshift({
-                                            NameSpace: fileName,
-                                            Key1: '',
-                                            Key2: '',
-                                            zh: ch[0],
-                                            en: ''
-                                        })
+                                if (!line) return;
+                                if (flag) { // 多行注释判断
+                                    if (/\*\/\s*\}?\s*$/.test(line)) flag = false;
+                                }
+                                else {
+                                    if (/^\s*\{?\s*\/\*/.test(line)) {
+                                        if (/\*\/\s*\}?\s*$/.test(line)) return; // 同一行多行注释标记结束
+                                        flag = true;
                                     }
+                                }
+
+                                if (flag) return;
+                                const ch = line.split('//')[0].replace(/[^\u4e00-\u9fa5\uFF00-\uFFFF]+/g, '');
+                                if (ch) {
+                                    const pathArr = filedir.split(baseFilePath)[1].split('/');
+                                    const pathArrLength = pathArr.length;
+                                    const fileName = pathArr[pathArrLength - 1].split('.')[0];
+                                    excelData.push({
+                                        path: pathArr.join(' '),
+                                        NameSpace: fileName === 'index' ? pathArr[pathArrLength - 2] || '' : fileName,
+                                        Key1: '',
+                                        Key2: '',
+                                        zh: ch,
+                                        en: ''
+                                    })
                                 }
                             });
 
@@ -129,6 +146,6 @@ function iterateFile(filePath) {
     });
 }
 
-iterateFile(filePath);
+iterateFile(baseFilePath);
 
-app.listen(3000);
+app.listen(3999);
